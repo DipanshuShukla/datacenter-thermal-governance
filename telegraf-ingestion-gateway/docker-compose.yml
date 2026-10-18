@@ -1,0 +1,28 @@
+services:
+  telegraf:
+    build:
+      context: ./telegraf
+    container_name: edge-telegraf
+    restart: unless-stopped
+    volumes:
+      # Share the dynamic config folder between host and container
+      - shared-configs:/etc/telegraf/telegraf.d
+      # Mount the static base config directly
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+
+  config-sidecar:
+    build:
+      context: ./sidecar
+    container_name: edge-sidecar
+    restart: unless-stopped
+    # CRITICAL: Share the PID namespace so the sidecar can kill -SIGHUP Telegraf
+    pid: "service:telegraf"
+    depends_on:            # <--- ADD THIS BLOCK
+      telegraf:
+        condition: service_started
+    volumes:
+      # Mount the exact same volume to write new configs
+      - shared-configs:/etc/telegraf/telegraf.d
+
+volumes:
+  shared-configs:
