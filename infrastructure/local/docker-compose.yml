@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # 1. Apache Kafka (The Event Streaming Backbone)
+  kafka:
+    image: apache/kafka:latest
+    ports:
+      - "9092:9092"  # Exposes the EXTERNAL listener to your host machine
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_OFFER_MAX_REPLICAS_PER_BROKER=1
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+
+      # ─── AUTO-CREATE TOPICS & PARTITIONS ───
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_NUM_PARTITIONS=10
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:29092 --list" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  # 2. Redis (The Time-Aware/State Cache)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # 3. PostgreSQL (For Static Datacenter Metadata)
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: twin_admin
+      POSTGRES_PASSWORD: twin_password
+      POSTGRES_DB: digital_twin_metadata
+
+  # 4. InfluxDB (For Time-Series Historical Storage)
+  influxdb:
+    image: influxdb:2.7-alpine
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword123
+      DOCKER_INFLUXDB_INIT_ORG: enginpilot
+      DOCKER_INFLUXDB_INIT_BUCKET: digital_twin
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: supersecret_local_dev_token

@@ -1,0 +1,22 @@
+server:
+  port: ${PORT:8080}
+spring:
+  application:
+    name: governance-engine
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      timeout: 2000
+
+app:
+  kafka:
+    topic:
+      predicted: ${KAFKA_PREDICTED_TELEMETRY_TOPIC_NAME:telemetry_predicted}
+      alert: ${KAFKA_ALERT_TOPIC_NAME:governance_alerts}

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENGINPILOT | Predictive Thermal Twin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-[#0D1527] text-white font-sans p-6 h-screen flex flex-col overflow-hidden">
+
+<header class="flex justify-between items-center pb-4 mb-4 border-b border-gray-700 shrink-0">
+    <div class="flex items-center gap-4">
+        <div class="w-8 h-8 bg-[#0066CC] rounded flex items-center justify-center font-bold text-xl">EP</div>
+        <h1 class="text-2xl font-bold text-gray-100">DCIP Executive Dashboard <span class="text-[#0066CC] text-lg font-normal ml-2">| Live Telemetry</span></h1>
+    </div>
+    <div id="status-badge" class="px-6 py-2 rounded font-bold bg-gray-600 tracking-wider transition-colors duration-300 shadow-lg">
+        INITIALIZING
+    </div>
+</header>
+
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 flex-grow min-h-0">
+
+    <div class="bg-[#1B2A4A] p-4 rounded-lg border border-gray-700 shadow-lg col-span-3 flex flex-col">
+        <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2 shrink-0">Panel A: Thermal Prediction vs Reality (RACK-01)</h2>
+        <div class="relative flex-grow min-h-0 w-full">
+            <canvas id="thermalChart"></canvas>
+        </div>
+    </div>
+
+    <div class="grid grid-rows-2 gap-4 col-span-1 min-h-0">
+        <div class="bg-[#1B2A4A] p-4 rounded-lg border border-gray-700 shadow-lg flex flex-col items-center justify-center">
+            <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2 w-full text-left shrink-0">Panel B: IT Load (10kW Max)</h2>
+            <div class="relative w-full max-w-[200px] aspect-[2/1]">
+                <canvas id="gaugeChart"></canvas>
+                <div class="absolute bottom-0 w-full text-center">
+                    <span id="it-load-text" class="text-3xl font-mono font-bold">--</span><span class="text-sm text-gray-400"> kW</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-[#1B2A4A] p-4 rounded-lg border border-gray-700 shadow-lg flex flex-col">
+            <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 shrink-0">Panel C: THERM-NET State</h2>
+            <div class="space-y-3 flex-grow text-sm">
+                <div class="flex justify-between border-b border-gray-700/50 pb-1">
+                    <span class="text-gray-400">Cooling Supply</span>
+                    <span id="stat-supply" class="font-mono text-[#0066CC]">-- °C</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-700/50 pb-1">
+                    <span class="text-gray-400">Air Density (ρ)</span>
+                    <span id="stat-rho" class="font-mono">-- kg/m³</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-700/50 pb-1">
+                    <span class="text-gray-400">Specific Heat (Cp)</span>
+                    <span id="stat-cp" class="font-mono">-- J/kgK</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-700/50 pb-1">
+                    <span class="text-gray-400">Divergence (Δ)</span>
+                    <span id="stat-delta" class="font-mono font-bold text-yellow-500">--</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-700/50 pb-1">
+                    <span class="text-gray-400">Calc Latency</span>
+                    <span id="stat-latency" class="font-mono text-green-400">-- ms</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-[#1B2A4A] p-4 rounded-lg border border-gray-700 shadow-lg col-span-4 shrink-0 h-48 flex flex-col">
+        <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2 shrink-0">Panel D: DESCRIBE-ONLY Governance Feed</h2>
+        <div class="bg-[#0D1527] p-3 rounded font-mono text-xs overflow-y-auto flex-grow border border-gray-800 shadow-inner" id="alert-feed">
+            <p class="text-gray-500">> System attached to telemetry_predicted... awaiting events.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    const RACK_ID = 'RACK-01';
+    const API_URL = `${window.location.origin}/api/v1/twin/${RACK_ID}/state`;
+
+    // Chart Configuration Variables
+    const MAX_DATA_POINTS = 60; // 2 minutes of history at 2s polling
+    const timeLabels = [];
+    const actualTempData = [];
+    const predictedTempData = [];
+
+    // Initialize Panel A: Time Series
+    const ctxThermal = document.getElementById('thermalChart').getContext('2d');
+    const thermalChart = new Chart(ctxThermal, {
+        type: 'line',
+        data: {
+            labels: timeLabels,
+            datasets: [
+                {
+                    label: 'Actual Sensor Temp (°C)',
+                    data: actualTempData,
+                    borderColor: '#0066CC', // ENGINPILOT Accent Blue
+                    backgroundColor: 'rgba(0, 102, 204, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                },
+                {
+                    label: 'Predicted Temp (°C)',
+                    data: predictedTempData,
+                    borderColor: '#CC0000', // Red for divergence
+                    borderDash: [5, 5],
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            scales: {
+                x: { grid: { color: '#374151' }, ticks: { color: '#9CA3AF', maxTicksLimit: 10 } },
+                y: { grid: { color: '#374151' }, ticks: { color: '#9CA3AF' }, suggestedMin: 20, suggestedMax: 32 }
+            },
+            plugins: { legend: { labels: { color: '#E5E7EB' } } }
+        }
+    });
+
+    // Initialize Panel B: Gauge
+    const ctxGauge = document.getElementById('gaugeChart').getContext('2d');
+    const gaugeChart = new Chart(ctxGauge, {
+        type: 'doughnut',
+        data: {
+            datasets: [{
+                data: [0, 10], // Initial state: 0 IT load, 10 remaining
+                backgroundColor: ['#10B981', '#374151'],
+                borderWidth: 0,
+                circumference: 180,
+                rotation: 270
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '80%',
+            plugins: { legend: { display: false }, tooltip: { enabled: false } }
+        }
+    });
+
+    async function fetchTwinState() {
+        try {
+            const response = await fetch(API_URL);
+            if (!response.ok) return;
+
+            const data = await response.json();
+            updateDashboard(data);
+        } catch (error) {
+            console.error("Failed to fetch state:", error);
+        }
+    }
+
+    function updateDashboard(data) {
+        const telemetry = data.telemetry;
+        const raw = telemetry.raw_telemetry;
+        const status = data.currentStatus;
+        const now = new Date(telemetry.raw_telemetry.timestamp).toLocaleTimeString();
+
+        // Update Panel A: Chart Data
+        if (timeLabels.length >= MAX_DATA_POINTS) {
+            timeLabels.shift();
+            actualTempData.shift();
+            predictedTempData.shift();
+        }
+        timeLabels.push(now);
+        actualTempData.push(raw.actual_rack_temp_c);
+        predictedTempData.push(telemetry.t_predicted_c);
+        thermalChart.update();
+
+        // Update Panel B: Gauge Color Logic
+        const load = raw.it_load_kw;
+        let gaugeColor = '#10B981'; // Green < 6
+        if (load >= 6 && load < 8) gaugeColor = '#F59E0B'; // Amber < 8
+        if (load >= 8) gaugeColor = '#EF4444'; // Red >= 8
+
+        gaugeChart.data.datasets[0].data = [load, 10 - load];
+        gaugeChart.data.datasets[0].backgroundColor[0] = gaugeColor;
+        gaugeChart.update();
+        document.getElementById('it-load-text').innerText = load.toFixed(1);
+
+        // Update Panel C: Stats
+        document.getElementById('stat-supply').innerText = raw.crah_supply_temp_c + ' °C';
+        document.getElementById('stat-rho').innerText = telemetry.rho_kg_m3 + ' kg/m³';
+        document.getElementById('stat-cp').innerText = telemetry.cp_j_kgk + ' J/kgK';
+        document.getElementById('stat-delta').innerText = '+' + telemetry.temp_delta.toFixed(2);
+        document.getElementById('stat-latency').innerText = telemetry.calc_latency_ms + ' ms';
+
+        // Update Header Status Badge
+        const badge = document.getElementById('status-badge');
+        badge.innerText = status.severity;
+        badge.className = 'px-6 py-2 rounded font-bold tracking-wider transition-colors duration-300 shadow-lg text-white ';
+        if (status.severity === 'NORMAL') badge.classList.add('bg-green-600');
+        else if (status.severity === 'T1_ADVISORY') badge.classList.add('bg-yellow-500', 'text-gray-900');
+        else if (status.severity === 'T2_CRITICAL') badge.classList.add('bg-red-600', 'animate-pulse');
+
+        // Update Panel D: Logs
+        const feed = document.getElementById('alert-feed');
+        const logMsg = `[${new Date(status.timestamp).toLocaleTimeString()}] [${status.severity}] ${status.message}`;
+        const lastLog = feed.lastElementChild?.innerText;
+
+        if (lastLog !== logMsg) {
+            const p = document.createElement('p');
+            p.innerText = logMsg;
+            if (status.severity === 'T2_CRITICAL') p.className = 'text-red-400 font-bold';
+            else if (status.severity === 'T1_ADVISORY') p.className = 'text-yellow-400';
+            else p.className = 'text-green-400';
+
+            feed.appendChild(p);
+            feed.scrollTop = feed.scrollHeight;
+        }
+    }
+
+    // Initialize polling
+    setInterval(fetchTwinState, 2000);
+    fetchTwinState();
+</script>
+</body>
+</html>

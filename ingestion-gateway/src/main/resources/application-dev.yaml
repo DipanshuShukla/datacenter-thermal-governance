@@ -1,0 +1,8 @@
+# Any settings here will override or append to application.yml
+# ONLY when the 'dev' profile is active.
+
+logging:
+  level:
+    root: INFO
+    # Enable verbose debugging specifically for local development
+    com.enginpilot.ingestiongateway: DEBUG
